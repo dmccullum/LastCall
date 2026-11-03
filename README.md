@@ -2,6 +2,8 @@
 
 Last Call is a macOS menu bar app that shows your Claude 5-hour session usage and weekly usage as percentages, with the time each one resets.
 
+<p align="center"><img src="docs/images/screenshot.png" alt="Last Call’s popover open below its menu bar item: Current Session 10% used, resets in 54 min; This Week 35% used, resets Fri 3:00 AM; both behind pace" width="650"></p>
+
 ## What it shows
 
 - Menu bar: an icon of two stacked bars (5-hour on top, weekly below), each filled to its utilization, plus text set in Settings: session percentage, weekly percentage, both (`42% · 18%`), or icon only.
