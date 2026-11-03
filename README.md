@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/icon.png" alt="Last Call app icon" width="160"></p>
+<p align="center"><img src="docs/images/app-icon.png" alt="Last Call app icon" width="160"></p>
 
 <h1 align="center">Last Call</h1>
 
