@@ -1,4 +1,6 @@
-# Last Call
+<p align="center"><img src="docs/images/icon.png" alt="Last Call app icon" width="160"></p>
+
+<h1 align="center">Last Call</h1>
 
 Last Call is a macOS menu bar app that shows your Claude 5-hour session usage and weekly usage as percentages, with the time each one resets. The tick on each bar marks how much of the window has passed, so “Behind pace” means you’ve used less than an even share so far.
 
