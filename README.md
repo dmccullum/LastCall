@@ -1,30 +1,8 @@
 # Last Call
 
-Last Call is a macOS menu bar app that shows your Claude 5-hour session usage and weekly usage as percentages, with the time each one resets.
+Last Call is a macOS menu bar app that shows your Claude 5-hour session usage and weekly usage as percentages, with the time each one resets. The tick on each bar marks how much of the window has passed, so “Behind pace” means you’ve used less than an even share so far.
 
 <p align="center"><img src="docs/images/screenshot.png" alt="Last Call’s popover open below its menu bar item: Current Session 10% used, resets in 47 min; This Week 36% used, resets Fri 3:00 AM; both behind pace" width="600"></p>
-
-## What it shows
-
-- Menu bar: an icon of two stacked bars (5-hour on top, weekly below), each filled to its utilization, plus text set in Settings: session percentage, weekly percentage, both (`42% · 18%`), or icon only.
-- Popover, opened by clicking the menu bar item:
-  - Current Session: percent used, a bar, and “Resets in 2 hr 13 min”.
-  - This Week: percent used, a bar, and “Resets Thu 9:00 AM”.
-  - Opus This Week and Sonnet This Week, when Claude reports those windows.
-  - A tick on each bar marks how much of the window has elapsed. The caption reads “Ahead of pace” when usage is more than 5 points above that mark, “Behind pace” when more than 5 points below, and “On pace” otherwise.
-  - Bars are the accent color, orange at 80% and above, red at 95% and above.
-  - Settings… (⌘,), About Last Call, Quit Last Call (⌘Q).
-- If Claude can’t be reached, the last numbers stay on screen dimmed, with a line saying what failed and when the next try is, and “Updated 12 min ago” showing their age.
-
-## Settings
-
-- Open at Login.
-- Menu Bar Shows: Session Percentage, Weekly Percentage, Both, or Icon Only.
-- Notifications, each sent once per window: session reaches 80%, session reaches 95%, session resets (only if it was at 80% or more), weekly limit reaches 80%.
-
-## Shortcuts app
-
-“Get Claude Usage” returns text such as `Session 42%, resets 3:40 PM. Week 18%, resets Thu 9:00 AM.`
 
 ## Where the numbers come from
 
