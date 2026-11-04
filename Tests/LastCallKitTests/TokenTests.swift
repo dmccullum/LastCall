@@ -142,7 +142,7 @@ final class ScriptedTransport: HTTPTransport, @unchecked Sendable {
     let en = Locale(identifier: "en_US")
     let reset1 = ISODate.parse("2026-11-03T15:40:00Z")!
     let reset2 = ISODate.parse("2026-11-03T20:40:00Z")!
-    let all = AlertSettings(session80: true, session95: true, sessionReset: true, weekly80: true)
+    let all = AlertSettings(sessionThresholds: [80, 95], weeklyThresholds: [80], sessionReset: true, weeklyReset: true)
 
     func snap(_ session: Double, reset: Date?, week: Double = 0) -> UsageSnapshot {
         UsageSnapshot(
@@ -182,5 +182,53 @@ final class ScriptedTransport: HTTPTransport, @unchecked Sendable {
     @Test func weeklyEighty() {
         let alerts = AlertPlanner.alerts(previous: nil, current: snap(10, reset: reset1, week: 80), settings: all, fired: [], locale: en, timeZone: utc)
         #expect(alerts.map(\.message.plain) == ["Weekly limit at 80%. Resets Tue 8:40 PM."])
+    }
+
+    @Test func arbitraryThresholds() {
+        let settings = AlertSettings(sessionThresholds: [50, 90])
+        let mid = AlertPlanner.alerts(previous: nil, current: snap(55, reset: reset1), settings: settings, fired: [], locale: en, timeZone: utc)
+        #expect(mid.map(\.key).count == 1)
+        #expect(mid[0].key.hasPrefix("s50|"))
+        let high = AlertPlanner.alerts(previous: nil, current: snap(91, reset: reset1), settings: settings, fired: [mid[0].key], locale: en, timeZone: utc)
+        #expect(high.count == 1)
+        #expect(high[0].key.hasPrefix("s90|"))
+    }
+
+    @Test func jumpSendsOnlyHighestThreshold() {
+        let settings = AlertSettings(sessionThresholds: [50, 90])
+        let alerts = AlertPlanner.alerts(previous: nil, current: snap(93, reset: reset1), settings: settings, fired: [], locale: en, timeZone: utc)
+        #expect(alerts.map(\.message.plain) == ["Session at 93%. Resets at 3:40 PM."])
+        #expect(alerts[0].key.hasPrefix("s90|"))
+    }
+
+    @Test func thresholdNotReachedSendsNothing() {
+        let settings = AlertSettings(sessionThresholds: [50, 90], weeklyThresholds: [70])
+        let alerts = AlertPlanner.alerts(previous: nil, current: snap(49, reset: reset1, week: 69), settings: settings, fired: [], locale: en, timeZone: utc)
+        #expect(alerts.isEmpty)
+    }
+
+    @Test func weeklyResetFiresAndDedupes() {
+        let before = snap(10, reset: reset1, week: 85)
+        let after = UsageSnapshot(
+            fiveHour: UsageWindow(utilization: 1, resetsAt: reset1),
+            sevenDay: UsageWindow(utilization: 0, resetsAt: reset2.addingTimeInterval(7 * 86400)),
+            fetchedAt: .now
+        )
+        let first = AlertPlanner.alerts(previous: before, current: after, settings: all, fired: [], locale: en, timeZone: utc)
+        let reset = first.filter { $0.key.hasPrefix("wr|") }
+        #expect(reset.map(\.message.plain) == ["Weekly limit reset. Your weekly limit is available again."])
+        let again = AlertPlanner.alerts(previous: before, current: after, settings: all, fired: Set(first.map(\.key)), locale: en, timeZone: utc)
+        #expect(again.isEmpty)
+        let low = AlertPlanner.alerts(previous: snap(10, reset: reset1, week: 50), current: after, settings: all, fired: [], locale: en, timeZone: utc)
+        #expect(!low.contains { $0.key.hasPrefix("wr|") })
+    }
+
+    @Test func bellBelowCurrentUsageStaysQuiet() {
+        let settings = AlertSettings(sessionThresholds: [30, 80])
+        let quiet = AlertPlanner.alerts(previous: snap(50, reset: reset1), current: snap(52, reset: reset1), settings: settings, fired: [], locale: en, timeZone: utc)
+        #expect(quiet.isEmpty)
+        let crossed = AlertPlanner.alerts(previous: snap(78, reset: reset1), current: snap(82, reset: reset1), settings: settings, fired: [], locale: en, timeZone: utc)
+        #expect(crossed.map(\.key.first) == ["s"])
+        #expect(crossed[0].key.hasPrefix("s80|"))
     }
 }

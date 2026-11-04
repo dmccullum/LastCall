@@ -1,22 +1,27 @@
 import DMKit
+import LastCallKit
 import ServiceManagement
 import SwiftUI
+import UserNotifications
 
 struct SettingsView: View {
     @AppStorage(SettingsKey.menuBarStyle) private var style: MenuBarStyle = .capsules
     @AppStorage(SettingsKey.menuBarDisplay) private var display: MenuBarDisplay = .session
     @AppStorage(SettingsKey.showPaceInMenuBar) private var showPace = false
     @AppStorage(SettingsKey.showAPIEquivalent) private var showAPIEquivalent = false
-    @AppStorage(SettingsKey.notifySession80) private var session80 = false
-    @AppStorage(SettingsKey.notifySession95) private var session95 = false
-    @AppStorage(SettingsKey.notifySessionReset) private var sessionReset = false
-    @AppStorage(SettingsKey.notifyWeekly80) private var weekly80 = false
 
     @State private var openAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginStatus = SMAppService.mainApp.status
     @State private var loginError: String?
 
     var body: some View {
+        TabView {
+            Tab("General", systemImage: "gearshape") { general }
+            Tab("Notifications", systemImage: "bell") { NotificationsSettings() }
+        }
+    }
+
+    private var general: some View {
         Form {
             Section("General") {
                 Toggle("Open at Login", isOn: loginBinding)
@@ -41,18 +46,23 @@ struct SettingsView: View {
                     Text("Show Pace")
                     Text("Marks how much of each window has passed.")
                 }
-                Toggle(isOn: $showAPIEquivalent) {
-                    Text("Show API Equivalent (Beta)")
-                    Text("Estimates what Claude Code on this Mac would cost at API list prices, from transcripts in ~/.claude/projects. Excludes claude.ai, the Claude apps, and other devices. Not a bill; prices are built in and can go out of date.")
+            }
+            Section {
+                Toggle("Show in Popover", isOn: $showAPIEquivalent)
+            } header: {
+                HStack(spacing: 6) {
+                    Text("API Equivalent")
+                    Text("Beta")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .background(.quaternary, in: .capsule)
+                        .foregroundStyle(.secondary)
                 }
-            }
-            Section("Session Notifications") {
-                Toggle("Reaches 80%", isOn: $session80)
-                Toggle("Reaches 95%", isOn: $session95)
-                Toggle("Resets", isOn: $sessionReset)
-            }
-            Section("Weekly Notifications") {
-                Toggle("Reaches 80%", isOn: $weekly80)
+            } footer: {
+                Text("Estimated from Claude Code transcripts on this Mac at API list prices.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Reads ~/.claude/projects. Excludes claude.ai, the Claude apps and other devices. Prices are built into Last Call and can go out of date.")
             }
         }
         .formStyle(.grouped)
@@ -60,13 +70,11 @@ struct SettingsView: View {
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
         .onChange(of: showAPIEquivalent) { _, on in if on { Task { await UsageModel.shared.scanCosts() } } }
-        .onChange(of: session80) { _, on in if on { AlertCenter.shared.requestAuthorization() } }
-        .onChange(of: session95) { _, on in if on { AlertCenter.shared.requestAuthorization() } }
-        .onChange(of: sessionReset) { _, on in if on { AlertCenter.shared.requestAuthorization() } }
-        .onChange(of: weekly80) { _, on in if on { AlertCenter.shared.requestAuthorization() } }
         .onAppear {
             loginStatus = SMAppService.mainApp.status
             openAtLogin = loginStatus == .enabled
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
         }
         .alert("Couldn’t Change Open at Login", isPresented: Binding(get: { loginError != nil }, set: { if !$0 { loginError = nil } })) {
             Button("OK") { loginError = nil }
@@ -127,5 +135,133 @@ private struct StyleTile: View {
         .buttonStyle(.plain)
         .accessibilityLabel(style.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+private struct NotificationsSettings: View {
+    @AppStorage(SettingsKey.sessionThresholds) private var sessionText = ""
+    @AppStorage(SettingsKey.weeklyThresholds) private var weeklyText = ""
+    @AppStorage(SettingsKey.notifySessionReset) private var sessionReset = false
+    @AppStorage(SettingsKey.notifyWeeklyReset) private var weeklyReset = false
+
+    @State private var notificationStatus: UNAuthorizationStatus?
+
+    private var model: UsageModel { UsageModel.shared }
+    private var session: [Int] { ThresholdList.parse(sessionText) }
+    private var weekly: [Int] { ThresholdList.parse(weeklyText) }
+
+    private var sessionBinding: Binding<[Int]> {
+        Binding(get: { session }, set: { sessionText = ThresholdList.format($0) })
+    }
+
+    private var weeklyBinding: Binding<[Int]> {
+        Binding(get: { weekly }, set: { weeklyText = ThresholdList.format($0) })
+    }
+
+    var body: some View {
+        Form {
+            if notificationStatus == .denied {
+                Section {
+                    LabeledContent {
+                        Button("Open System Settings…") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.danielmccullum.LastCall") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                    } label: {
+                        Text("Notifications are off.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Section {
+                header("Current Session", model.snapshot?.fiveHour?.utilization)
+                BellBar(name: "Session", thresholds: sessionBinding, utilization: model.snapshot?.fiveHour?.utilization)
+                Toggle("Notify When It Resets", isOn: $sessionReset)
+            }
+            Section {
+                header("This Week", model.snapshot?.sevenDay?.utilization)
+                BellBar(name: "Weekly", thresholds: weeklyBinding, utilization: model.snapshot?.sevenDay?.utilization)
+                Toggle("Notify When It Resets", isOn: $weeklyReset)
+            }
+            Section("Next Notification") {
+                HStack(spacing: 8) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 16, height: 16)
+                    Text(nextMessage)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .help(nextMessage)
+                    Spacer(minLength: 8)
+                    Button("Send Test") {
+                        let message = nextMessage
+                        Task {
+                            await AlertCenter.shared.sendTest(message: message)
+                            notificationStatus = await AlertCenter.shared.authorizationStatus()
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .overlay { FloatingBellPill() }
+        // Same width as the General tab.
+        .frame(width: 400)
+        .fixedSize(horizontal: false, vertical: true)
+        .onChange(of: sessionText) { old, new in
+            if ThresholdList.parse(old).isEmpty && !ThresholdList.parse(new).isEmpty { requestNotifications() }
+        }
+        .onChange(of: weeklyText) { old, new in
+            if ThresholdList.parse(old).isEmpty && !ThresholdList.parse(new).isEmpty { requestNotifications() }
+        }
+        .onChange(of: sessionReset) { _, on in if on { requestNotifications() } }
+        .onChange(of: weeklyReset) { _, on in if on { requestNotifications() } }
+        .onAppear { refreshNotificationStatus() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshNotificationStatus()
+        }
+    }
+
+    private func header(_ title: String, _ utilization: Double?) -> some View {
+        HStack {
+            Text(title).font(.headline)
+            Spacer()
+            if let utilization {
+                Text("\(UsageFormat.percent(utilization))% used")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The nearest bell above current usage in either window, else a reset, else a note that none are set.
+    private var nextMessage: String {
+        let snapshot = model.snapshot
+        let sessionUsed = snapshot?.fiveHour?.utilization ?? 0
+        let weeklyUsed = snapshot?.sevenDay?.utilization ?? 0
+        var candidates: [(distance: Double, message: String)] = []
+        if let value = session.first(where: { Double($0) > sessionUsed }) {
+            candidates.append((Double(value) - sessionUsed, AlertPlanner.sessionMessage(percent: value, resetsAt: snapshot?.fiveHour?.resetsAt)))
+        }
+        if let value = weekly.first(where: { Double($0) > weeklyUsed }) {
+            candidates.append((Double(value) - weeklyUsed, AlertPlanner.weeklyMessage(percent: value, resetsAt: snapshot?.sevenDay?.resetsAt)))
+        }
+        if let next = candidates.min(by: { $0.distance < $1.distance }) { return next.message }
+        if sessionReset { return AlertPlanner.sessionResetMessage }
+        if weeklyReset { return AlertPlanner.weeklyResetMessage }
+        return "No bells set."
+    }
+
+    private func refreshNotificationStatus() {
+        Task { notificationStatus = await AlertCenter.shared.authorizationStatus() }
+    }
+
+    private func requestNotifications() {
+        Task {
+            await AlertCenter.shared.requestAuthorization()
+            notificationStatus = await AlertCenter.shared.authorizationStatus()
+        }
     }
 }

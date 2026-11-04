@@ -1,16 +1,19 @@
 import Foundation
 
 public struct AlertSettings: Equatable, Sendable {
-    public var session80: Bool
-    public var session95: Bool
+    /// Multiples of 5 in 5...100, at most `maxThresholds` per window.
+    public var sessionThresholds: [Int]
+    public var weeklyThresholds: [Int]
     public var sessionReset: Bool
-    public var weekly80: Bool
+    public var weeklyReset: Bool
 
-    public init(session80: Bool = false, session95: Bool = false, sessionReset: Bool = false, weekly80: Bool = false) {
-        self.session80 = session80
-        self.session95 = session95
+    public static let maxThresholds = 4
+
+    public init(sessionThresholds: [Int] = [], weeklyThresholds: [Int] = [], sessionReset: Bool = false, weeklyReset: Bool = false) {
+        self.sessionThresholds = sessionThresholds
+        self.weeklyThresholds = weeklyThresholds
         self.sessionReset = sessionReset
-        self.weekly80 = weekly80
+        self.weeklyReset = weeklyReset
     }
 }
 
@@ -31,41 +34,60 @@ public enum AlertPlanner {
     ) -> [UsageAlert] {
         var result: [UsageAlert] = []
 
-        if let session = current.fiveHour {
-            let window = windowKey(session)
-            let reset = session.resetsAt.map { UsageFormat.time($0, locale: locale, timeZone: timeZone) }
-            let suffix = reset.map { " Resets at \($0)." } ?? ""
-            let percent = UsageFormat.percent(session.utilization)
-            let at95 = settings.session95 && session.utilization >= 95
-            if at95 {
-                result.append(UsageAlert(key: "s95|\(window)", message: "Session at \(percent)%.\(suffix)"))
-            }
-            // A jump straight past 95 sends one alert, not two.
-            if settings.session80 && session.utilization >= 80 && !at95 {
-                result.append(UsageAlert(key: "s80|\(window)", message: "Session at \(percent)%.\(suffix)"))
-            }
+        if let session = current.fiveHour,
+           let threshold = highestReached(settings.sessionThresholds, current: session, previous: previous?.fiveHour) {
+            result.append(UsageAlert(
+                key: "s\(threshold)|\(windowKey(session))",
+                message: sessionMessage(percent: UsageFormat.percent(session.utilization), resetsAt: session.resetsAt, locale: locale, timeZone: timeZone)
+            ))
+        }
+
+        if let week = current.sevenDay,
+           let threshold = highestReached(settings.weeklyThresholds, current: week, previous: previous?.sevenDay) {
+            result.append(UsageAlert(
+                key: "w\(threshold)|\(windowKey(week))",
+                message: weeklyMessage(percent: UsageFormat.percent(week.utilization), resetsAt: week.resetsAt, locale: locale, timeZone: timeZone)
+            ))
         }
 
         if settings.sessionReset,
            let before = previous?.fiveHour, before.utilization >= 80, let beforeReset = before.resetsAt {
             let rolled = current.fiveHour?.resetsAt.map { $0.timeIntervalSince(beforeReset) > 60 } ?? true
             if rolled {
-                result.append(UsageAlert(
-                    key: "sr|\(minuteKey(beforeReset))",
-                    message: "Session reset. Your 5-hour limit is available again."
-                ))
+                result.append(UsageAlert(key: "sr|\(minuteKey(beforeReset))", message: sessionResetMessage))
             }
         }
 
-        if settings.weekly80, let week = current.sevenDay, week.utilization >= 80 {
-            let suffix = week.resetsAt.map { " Resets \(UsageFormat.weekdayAndTime($0, locale: locale, timeZone: timeZone))." } ?? ""
-            result.append(UsageAlert(
-                key: "w80|\(windowKey(week))",
-                message: "Weekly limit at \(UsageFormat.percent(week.utilization))%.\(suffix)"
-            ))
+        if settings.weeklyReset,
+           let before = previous?.sevenDay, before.utilization >= 80, let beforeReset = before.resetsAt {
+            let rolled = current.sevenDay?.resetsAt.map { $0.timeIntervalSince(beforeReset) > 60 } ?? true
+            if rolled {
+                result.append(UsageAlert(key: "wr|\(minuteKey(beforeReset))", message: weeklyResetMessage))
+            }
         }
 
         return result.filter { !fired.contains($0.key) }
+    }
+
+    public static func sessionMessage(percent: Int, resetsAt: Date?, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        let suffix = resetsAt.map { " Resets at \(UsageFormat.time($0, locale: locale, timeZone: timeZone))." } ?? ""
+        return "Session at \(percent)%.\(suffix)"
+    }
+
+    public static func weeklyMessage(percent: Int, resetsAt: Date?, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        let suffix = resetsAt.map { " Resets \(UsageFormat.weekdayAndTime($0, locale: locale, timeZone: timeZone))." } ?? ""
+        return "Weekly limit at \(percent)%.\(suffix)"
+    }
+
+    public static let sessionResetMessage = "Session reset. Your 5-hour limit is available again."
+    public static let weeklyResetMessage = "Weekly limit reset. Your weekly limit is available again."
+
+    /// Only the highest threshold reached fires, so a jump past several sends one alert.
+    /// Within the same window as `previous`, a threshold must also have been crossed since then,
+    /// so a bell placed below current usage stays quiet.
+    private static func highestReached(_ thresholds: [Int], current: UsageWindow, previous: UsageWindow?) -> Int? {
+        let floor = previous.flatMap { windowKey($0) == windowKey(current) ? $0.utilization : nil }
+        return thresholds.filter { t in Double(t) <= current.utilization && (floor.map { $0 < Double(t) } ?? true) }.max()
     }
 
     private static func windowKey(_ window: UsageWindow) -> String {

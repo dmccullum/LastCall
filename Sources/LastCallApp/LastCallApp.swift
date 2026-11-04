@@ -7,6 +7,7 @@ struct LastCallApp: App {
     private let model = UsageModel.shared
 
     init() {
+        SettingsMigration.run()
         UsageModel.shared.start()
     }
 
