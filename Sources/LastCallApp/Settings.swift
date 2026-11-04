@@ -4,6 +4,7 @@ enum SettingsKey {
     static let menuBarDisplay = "menuBarDisplay"
     static let menuBarStyle = "menuBarStyle"
     static let showPaceInMenuBar = "showPaceInMenuBar"
+    static let showAPIEquivalent = "showAPIEquivalent"
     static let notifySession80 = "notifySession80"
     static let notifySession95 = "notifySession95"
     static let notifySessionReset = "notifySessionReset"

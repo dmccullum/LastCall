@@ -6,6 +6,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.menuBarStyle) private var style: MenuBarStyle = .capsules
     @AppStorage(SettingsKey.menuBarDisplay) private var display: MenuBarDisplay = .session
     @AppStorage(SettingsKey.showPaceInMenuBar) private var showPace = false
+    @AppStorage(SettingsKey.showAPIEquivalent) private var showAPIEquivalent = false
     @AppStorage(SettingsKey.notifySession80) private var session80 = false
     @AppStorage(SettingsKey.notifySession95) private var session95 = false
     @AppStorage(SettingsKey.notifySessionReset) private var sessionReset = false
@@ -40,6 +41,10 @@ struct SettingsView: View {
                     Text("Show Pace")
                     Text("Marks how much of each window has passed.")
                 }
+                Toggle(isOn: $showAPIEquivalent) {
+                    Text("Show API Equivalent (Beta)")
+                    Text("Estimates what Claude Code on this Mac would cost at API list prices, from transcripts in ~/.claude/projects. Excludes claude.ai, the Claude apps, and other devices. Not a bill; prices are built in and can go out of date.")
+                }
             }
             Section("Session Notifications") {
                 Toggle("Reaches 80%", isOn: $session80)
@@ -54,6 +59,7 @@ struct SettingsView: View {
         // Narrower than DMLayout.settingsWidth (500): Last Call has a few short rows.
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
+        .onChange(of: showAPIEquivalent) { _, on in if on { Task { await UsageModel.shared.scanCosts() } } }
         .onChange(of: session80) { _, on in if on { AlertCenter.shared.requestAuthorization() } }
         .onChange(of: session95) { _, on in if on { AlertCenter.shared.requestAuthorization() } }
         .onChange(of: sessionReset) { _, on in if on { AlertCenter.shared.requestAuthorization() } }

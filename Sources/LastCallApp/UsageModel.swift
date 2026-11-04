@@ -16,8 +16,13 @@ final class UsageModel {
     private(set) var lastUpdated: Date?
     private(set) var problem: Problem?
     private(set) var isRefreshing = false
+    /// API-list-price cost of Claude Code transcripts in the current windows. Nil until the first scan.
+    private(set) var sessionCost: CostEstimate?
+    private(set) var weeklyCost: CostEstimate?
 
     @ObservationIgnored private let service = UsageService()
+    @ObservationIgnored private let scanner = TranscriptScanner()
+    @ObservationIgnored private var isScanning = false
     @ObservationIgnored private var lastAttempt: Date?
     @ObservationIgnored private var interval = UsageModel.baseInterval
     @ObservationIgnored private var pollTask: Task<Void, Never>?
@@ -79,11 +84,29 @@ final class UsageModel {
             problem = nil
             interval = Self.baseInterval
             AlertCenter.shared.evaluate(previous: previous, current: fresh)
+            // Separate task: a slow scan must not delay the next poll.
+            Task { await self.scanCosts() }
         } catch let error as UsageError {
             handle(error)
         } catch {
             handle(.network)
         }
+    }
+
+    /// Totals Claude Code transcript cost for the current windows. Does nothing while the
+    /// setting is off, so no transcript is read and no cache file is written.
+    func scanCosts() async {
+        guard UserDefaults.standard.bool(forKey: SettingsKey.showAPIEquivalent) else { return }
+        guard !isScanning, let snapshot else { return }
+        isScanning = true
+        defer { isScanning = false }
+        let session = snapshot.fiveHour?.resetsAt.map { $0.addingTimeInterval(-5 * 3600)..<$0 }
+        let week = snapshot.sevenDay?.resetsAt.map { $0.addingTimeInterval(-7 * 86400)..<$0 }
+        let windows = [session, week].compactMap { $0 }
+        let totals = await scanner.scan(windows: windows)
+        var next = totals.makeIterator()
+        sessionCost = session == nil ? nil : next.next().map(CostEstimate.init)
+        weeklyCost = week == nil ? nil : next.next().map(CostEstimate.init)
     }
 
     private func handle(_ error: UsageError) {

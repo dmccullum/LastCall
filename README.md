@@ -10,6 +10,8 @@ Last Call is a macOS menu bar app that shows your Claude 5-hour session usage an
 
 Last Call reads the Claude Code sign-in from the login Keychain (item “Claude Code-credentials”) by running `/usr/bin/security`, then requests `https://api.anthropic.com/api/oauth/usage` with that access token. When the token is within 5 minutes of expiring, Last Call refreshes it at `https://platform.claude.com/v1/oauth/token` and writes the new tokens back to the same Keychain item, so Claude Code stays signed in. Nothing is sent anywhere else, and tokens are never logged or shown.
 
+When “Show API Equivalent (Beta)” is on in Settings, the dollar figure under Current Session and This Week is computed from the transcripts in `~/.claude/projects` at Anthropic API list prices. It counts only Claude Code on this Mac, not claude.ai, the Claude apps, or other devices. The transcripts are read locally, and nothing is sent anywhere. Last Call keeps the last 8 days of token counts and file read positions in `~/Library/Caches/com.danielmccullum.LastCall/`.
+
 It polls every 5 minutes (plus or minus 15 seconds), when the popover opens and the data is more than 60 seconds old, and after the Mac wakes. After an HTTP 429 the interval doubles, up to 30 minutes. While signed out it checks the Keychain every 60 seconds.
 
 ## Setup

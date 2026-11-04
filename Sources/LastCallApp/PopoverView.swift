@@ -7,6 +7,7 @@ struct PopoverView: View {
 
     @State private var isShown = false
     @State private var copied = false
+    @AppStorage(SettingsKey.showAPIEquivalent) private var showAPIEquivalent = false
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
 
@@ -39,7 +40,10 @@ struct PopoverView: View {
 
     private func shown() {
         isShown = true
-        Task { await model.refreshIfStale(after: 60) }
+        Task {
+            await model.refreshIfStale(after: 60)
+            await model.scanCosts()
+        }
     }
 
     // MARK: Content
@@ -55,14 +59,16 @@ struct PopoverView: View {
                         window: snapshot.fiveHour,
                         kind: .fiveHour,
                         now: timeline.date,
-                        emptyText: "No active session"
+                        emptyText: "No active session",
+                        cost: showAPIEquivalent ? model.sessionCost : nil
                     )
                     UsageRow(
                         title: "This Week",
                         window: snapshot.sevenDay,
                         kind: .weekly,
                         now: timeline.date,
-                        emptyText: "No usage yet"
+                        emptyText: "No usage yet",
+                        cost: showAPIEquivalent ? model.weeklyCost : nil
                     )
                     if let opus = snapshot.sevenDayOpus {
                         UsageRow(title: "Opus This Week", window: opus, kind: .weekly, now: timeline.date, emptyText: "", compact: true)
@@ -178,6 +184,7 @@ private struct UsageRow: View {
     let now: Date
     let emptyText: String
     var compact = false
+    var cost: CostEstimate?
 
     private var utilization: Double { window?.utilization ?? 0 }
 
@@ -219,6 +226,12 @@ private struct UsageRow: View {
                 Text(PaceMath.pace(utilizationPercent: utilization, elapsedFraction: elapsed).title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            if !compact, let cost {
+                Text(cost.caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Estimated from Claude Code transcripts on this Mac at API list prices. Doesn’t include claude.ai or other devices.")
             }
         }
     }
