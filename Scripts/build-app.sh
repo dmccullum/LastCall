@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-APP="$ROOT/dist/LastCall.app"
+APP="$ROOT/dist/Last Call.app"
 CONTENTS="$APP/Contents"
 CONFIGURATION="${1:-release}"
 

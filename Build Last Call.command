@@ -10,7 +10,7 @@ if ! command -v swift >/dev/null 2>&1; then
     exit 1
 fi
 
-APP="$PWD/dist/LastCall.app"
+APP="$PWD/dist/Last Call.app"
 
 if ! Scripts/build-app.sh; then
     echo

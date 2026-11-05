@@ -32,7 +32,7 @@ Requires macOS 26 and Xcode 26 or later.
 Scripts/build-app.sh
 ```
 
-This builds `dist/LastCall.app` and signs it ad hoc. `Build Last Call.command` does the same when double-clicked in Finder, then opens the app.
+This builds `dist/Last Call.app` and signs it ad hoc. `Build Last Call.command` does the same when double-clicked in Finder, then opens the app.
 
 ```
 swift build
