@@ -1,9 +1,30 @@
 import LastCallKit
 import SwiftUI
 
+/// The label of a menu bar item. Combined items show whichever service is selected.
+struct MenuBarItemLabel: View {
+    let item: MenuBarItem
+    @AppStorage(SettingsKey.selectedService) private var selected: Service = .claude
+    @AppStorage(SettingsKey.showClaude) private var showClaude = true
+    @AppStorage(SettingsKey.showCodex) private var showCodex = false
+    @AppStorage(SettingsKey.menuBarStyle) private var claudeStyle: MenuBarStyle = .capsules
+    @AppStorage(SettingsKey.codexMenuBarStyle) private var codexStyle: MenuBarStyle = .rings
+
+    private var service: Service {
+        switch item {
+        case .service(let service): service
+        case .combined: Service.shown(selected: selected, claudeOn: showClaude, codexOn: showCodex)
+        }
+    }
+
+    var body: some View {
+        MenuBarLabel(model: .model(for: service), style: service == .claude ? claudeStyle : codexStyle)
+    }
+}
+
 struct MenuBarLabel: View {
     let model: UsageModel
-    @AppStorage(SettingsKey.menuBarStyle) private var style: MenuBarStyle = .capsules
+    let style: MenuBarStyle
     @AppStorage(SettingsKey.menuBarDisplay) private var display: MenuBarDisplay = .session
     @AppStorage(SettingsKey.showPaceInMenuBar) private var showPace = false
     @State private var now = Date.now
@@ -22,11 +43,14 @@ struct MenuBarLabel: View {
     }
 
     private var accessibilityText: String {
+        let name = model.service.title
         switch (session, weekly) {
-        case let (session?, weekly?): "Claude session \(session) percent, weekly \(weekly) percent"
-        case let (session?, nil): "Claude session \(session) percent"
-        case let (nil, weekly?): "Claude weekly \(weekly) percent"
-        default: model.problem == .signedOut ? "Claude usage, signed out" : "Claude usage"
+        case let (session?, weekly?): return "\(name) session \(session) percent, weekly \(weekly) percent"
+        case let (session?, nil): return "\(name) session \(session) percent"
+        case let (nil, weekly?): return "\(name) weekly \(weekly) percent"
+        default:
+            guard model.problem == .signedOut else { return "\(name) usage" }
+            return model.service == .codex ? "Codex usage, no data" : "Claude usage, signed out"
         }
     }
 

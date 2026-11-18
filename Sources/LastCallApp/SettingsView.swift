@@ -5,7 +5,12 @@ import SwiftUI
 import UserNotifications
 
 struct SettingsView: View {
-    @AppStorage(SettingsKey.menuBarStyle) private var style: MenuBarStyle = .capsules
+    @AppStorage(SettingsKey.menuBarStyle) private var claudeStyle: MenuBarStyle = .capsules
+    @AppStorage(SettingsKey.codexMenuBarStyle) private var codexStyle: MenuBarStyle = .rings
+    @AppStorage(SettingsKey.showClaude) private var showClaude = true
+    @AppStorage(SettingsKey.showCodex) private var showCodex = false
+    @AppStorage(SettingsKey.menuBarItems) private var menuBarItems: MenuBarItems = .combined
+    @AppStorage(SettingsKey.selectedService) private var selectedService: Service = .claude
     @AppStorage(SettingsKey.menuBarDisplay) private var display: MenuBarDisplay = .session
     @AppStorage(SettingsKey.showPaceInMenuBar) private var showPace = false
     @AppStorage(SettingsKey.showAPIEquivalent) private var showAPIEquivalent = false
@@ -17,9 +22,36 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             Tab("General", systemImage: "gearshape") { general }
-            Tab("Notifications", systemImage: "bell") { NotificationsSettings() }
+            Tab("Notifications", systemImage: "bell") { NotificationsTab() }
         }
     }
+
+    private var bothOn: Bool { showClaude && showCodex }
+
+    /// The service the single Style row describes.
+    private var shownService: Service {
+        Service.shown(selected: selectedService, claudeOn: showClaude, codexOn: showCodex)
+    }
+
+    /// The single Style row sets the style of the service shown; in combined mode with both
+    /// on it sets both, so switching services doesn’t change the silhouette.
+    private var sharedStyle: Binding<MenuBarStyle> {
+        Binding(
+            get: { shownService == .claude ? claudeStyle : codexStyle },
+            set: { newValue in
+                if bothOn {
+                    claudeStyle = newValue
+                    codexStyle = newValue
+                } else if shownService == .claude {
+                    claudeStyle = newValue
+                } else {
+                    codexStyle = newValue
+                }
+            }
+        )
+    }
+
+    private var showsSeparateStyles: Bool { bothOn && menuBarItems == .separate }
 
     private var general: some View {
         Form {
@@ -31,13 +63,29 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            Section("Services") {
+                Toggle(isOn: $showClaude) {
+                    Text("Claude")
+                    Text("Reads Claude Code’s sign-in.")
+                }
+                .disabled(showClaude && !showCodex)
+                Toggle(isOn: $showCodex) {
+                    Text("Codex")
+                    Text("Reads ~/.codex/sessions. No sign-in needed.")
+                }
+                .disabled(showCodex && !showClaude)
+            }
             Section("Menu Bar") {
-                LabeledContent("Style") {
-                    HStack(spacing: 10) {
-                        ForEach(MenuBarStyle.allCases) { option in
-                            StyleTile(style: option, showPace: showPace, isSelected: style == option) { style = option }
-                        }
+                if bothOn {
+                    Picker("Items", selection: $menuBarItems) {
+                        ForEach(MenuBarItems.allCases) { Text($0.title).tag($0) }
                     }
+                }
+                if showsSeparateStyles {
+                    StyleRow(title: "Claude Style", style: $claudeStyle, showPace: showPace)
+                    StyleRow(title: "Codex Style", style: $codexStyle, showPace: showPace)
+                } else {
+                    StyleRow(title: "Style", style: sharedStyle, showPace: showPace)
                 }
                 Picker("Shows", selection: $display) {
                     ForEach(MenuBarDisplay.allCases) { Text($0.title).tag($0) }
@@ -47,29 +95,31 @@ struct SettingsView: View {
                     Text("Marks how much of each window has passed.")
                 }
             }
-            Section {
-                Toggle("Show in Popover", isOn: $showAPIEquivalent)
-            } header: {
-                HStack(spacing: 6) {
-                    Text("API Equivalent")
-                    Text("Beta")
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .background(.quaternary, in: .capsule)
+            if showClaude {
+                Section {
+                    Toggle("Show in Popover", isOn: $showAPIEquivalent)
+                } header: {
+                    HStack(spacing: 6) {
+                        Text("API Equivalent")
+                        Text("Beta")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .background(.quaternary, in: .capsule)
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("Estimated from Claude Code transcripts on this Mac at API list prices.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                        .help("Reads ~/.claude/projects. Excludes claude.ai, the Claude apps and other devices. Prices are built into Last Call and can go out of date.")
                 }
-            } footer: {
-                Text("Estimated from Claude Code transcripts on this Mac at API list prices.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .help("Reads ~/.claude/projects. Excludes claude.ai, the Claude apps and other devices. Prices are built into Last Call and can go out of date.")
             }
         }
         .formStyle(.grouped)
         // Narrower than DMLayout.settingsWidth (500): Last Call has a few short rows.
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
-        .onChange(of: showAPIEquivalent) { _, on in if on { Task { await UsageModel.shared.scanCosts() } } }
+        .onChange(of: showAPIEquivalent) { _, on in if on { Task { await UsageModel.claude.scanCosts() } } }
         .onAppear {
             loginStatus = SMAppService.mainApp.status
             openAtLogin = loginStatus == .enabled
@@ -96,6 +146,23 @@ struct SettingsView: View {
                 openAtLogin = loginStatus == .enabled || loginStatus == .requiresApproval
             }
         )
+    }
+}
+
+/// A labeled row of the two style tiles.
+private struct StyleRow: View {
+    let title: String
+    @Binding var style: MenuBarStyle
+    let showPace: Bool
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack(spacing: 10) {
+                ForEach(MenuBarStyle.allCases) { option in
+                    StyleTile(style: option, showPace: showPace, isSelected: style == option) { style = option }
+                }
+            }
+        }
     }
 }
 
@@ -138,15 +205,43 @@ private struct StyleTile: View {
     }
 }
 
+/// Picks which service’s notifications to edit when both are on.
+private struct NotificationsTab: View {
+    @AppStorage(SettingsKey.showClaude) private var showClaude = true
+    @AppStorage(SettingsKey.showCodex) private var showCodex = false
+    @State private var chosen: Service = .claude
+
+    var body: some View {
+        let both = showClaude && showCodex
+        let service = Service.shown(selected: chosen, claudeOn: showClaude, codexOn: showCodex)
+        NotificationsSettings(service: service, selection: both ? $chosen : nil)
+            .id(service)
+    }
+}
+
 private struct NotificationsSettings: View {
-    @AppStorage(SettingsKey.sessionThresholds) private var sessionText = ""
-    @AppStorage(SettingsKey.weeklyThresholds) private var weeklyText = ""
-    @AppStorage(SettingsKey.notifySessionReset) private var sessionReset = false
-    @AppStorage(SettingsKey.notifyWeeklyReset) private var weeklyReset = false
+    let service: Service
+    /// Set when both services are on, to show the Claude / Codex picker.
+    let selection: Binding<Service>?
+
+    @AppStorage private var sessionText: String
+    @AppStorage private var weeklyText: String
+    @AppStorage private var sessionReset: Bool
+    @AppStorage private var weeklyReset: Bool
 
     @State private var notificationStatus: UNAuthorizationStatus?
 
-    private var model: UsageModel { UsageModel.shared }
+    init(service: Service, selection: Binding<Service>?) {
+        let keys = ServiceSettings(service)
+        self.service = service
+        self.selection = selection
+        _sessionText = AppStorage(wrappedValue: "", keys.sessionThresholdsKey)
+        _weeklyText = AppStorage(wrappedValue: "", keys.weeklyThresholdsKey)
+        _sessionReset = AppStorage(wrappedValue: false, keys.sessionResetKey)
+        _weeklyReset = AppStorage(wrappedValue: false, keys.weeklyResetKey)
+    }
+
+    private var model: UsageModel { UsageModel.model(for: service) }
     private var session: [Int] { ThresholdList.parse(sessionText) }
     private var weekly: [Int] { ThresholdList.parse(weeklyText) }
 
@@ -160,6 +255,15 @@ private struct NotificationsSettings: View {
 
     var body: some View {
         Form {
+            if let selection {
+                Section {
+                    Picker("Service", selection: selection) {
+                        ForEach(Service.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+            }
             if notificationStatus == .denied {
                 Section {
                     LabeledContent {
@@ -198,7 +302,7 @@ private struct NotificationsSettings: View {
                     Button("Send Test") {
                         let message = nextMessage
                         Task {
-                            await AlertCenter.shared.sendTest(message: message)
+                            await AlertCenter.shared.sendTest(message: message, service: service)
                             notificationStatus = await AlertCenter.shared.authorizationStatus()
                         }
                     }

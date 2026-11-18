@@ -18,14 +18,8 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
         return center
     }
 
-    var settings: AlertSettings {
-        let defaults = UserDefaults.standard
-        return AlertSettings(
-            sessionThresholds: ThresholdList.parse(defaults.string(forKey: SettingsKey.sessionThresholds) ?? ""),
-            weeklyThresholds: ThresholdList.parse(defaults.string(forKey: SettingsKey.weeklyThresholds) ?? ""),
-            sessionReset: defaults.bool(forKey: SettingsKey.notifySessionReset),
-            weeklyReset: defaults.bool(forKey: SettingsKey.notifyWeeklyReset)
-        )
+    func settings(for service: Service) -> AlertSettings {
+        ServiceSettings(service).alertSettings()
     }
 
     /// Asks for permission the first time a bell or reset is switched on.
@@ -42,12 +36,12 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
         return await center.notificationSettings().authorizationStatus
     }
 
-    func evaluate(previous: UsageSnapshot?, current: UsageSnapshot) {
-        let settings = settings
+    func evaluate(service: Service, previous: UsageSnapshot?, current: UsageSnapshot) {
+        let settings = settings(for: service)
         guard settings != AlertSettings(), let center else { return }
         let defaults = UserDefaults.standard
         let firedList = defaults.stringArray(forKey: SettingsKey.firedAlerts) ?? []
-        let alerts = AlertPlanner.alerts(previous: previous, current: current, settings: settings, fired: Set(firedList))
+        let alerts = AlertPlanner.alerts(previous: previous, current: current, settings: settings, fired: Set(firedList), service: ServiceSettings(service).plannerName)
         guard !alerts.isEmpty else { return }
         defaults.set(Array((firedList + alerts.map(\.key)).suffix(60)), forKey: SettingsKey.firedAlerts)
 
@@ -57,6 +51,7 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
             for alert in alerts {
                 let content = UNMutableNotificationContent()
                 content.title = "Last Call"
+                content.subtitle = service.title
                 content.body = alert.message
                 do {
                     try await center.add(UNNotificationRequest(identifier: alert.key, content: content, trigger: nil))
@@ -77,7 +72,7 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
 
     /// Posts `message` as a real notification, asking for permission first if needed.
     @discardableResult
-    func sendTest(message: String) async -> TestOutcome {
+    func sendTest(message: String, service: Service) async -> TestOutcome {
         guard let center else {
             Self.log.error("Send Test skipped: not running from an app bundle")
             return .unbundled
@@ -88,6 +83,7 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
         guard status == .authorized || status == .provisional else { return .denied }
         let content = UNMutableNotificationContent()
         content.title = "Last Call"
+        content.subtitle = service.title
         content.body = message
         do {
             try await center.add(UNNotificationRequest(identifier: "test-" + UUID().uuidString, content: content, trigger: nil))

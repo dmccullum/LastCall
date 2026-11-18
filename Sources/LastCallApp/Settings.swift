@@ -16,6 +16,82 @@ enum SettingsKey {
     static let legacyNotifySession95 = "notifySession95"
     static let legacyNotifyWeekly80 = "notifyWeekly80"
     static let firedAlerts = "firedAlerts"
+    static let showClaude = "showClaude"
+    static let showCodex = "showCodex"
+    static let menuBarItems = "menuBarItems"
+    static let selectedService = "selectedService"
+    static let codexMenuBarStyle = "codexMenuBarStyle"
+    static let codexSessionThresholds = "codexSessionThresholds"
+    static let codexWeeklyThresholds = "codexWeeklyThresholds"
+    static let notifyCodexSessionReset = "notifyCodexSessionReset"
+    static let notifyCodexWeeklyReset = "notifyCodexWeeklyReset"
+}
+
+enum Service: String, CaseIterable, Identifiable {
+    case claude
+    case codex
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .claude: "Claude"
+        case .codex: "Codex"
+        }
+    }
+
+    /// The service a combined menu bar item and popover show: `selected`, unless it is off.
+    static func shown(selected: Service, claudeOn: Bool, codexOn: Bool) -> Service {
+        switch (claudeOn, codexOn) {
+        case (true, false): .claude
+        case (false, true): .codex
+        default: selected
+        }
+    }
+}
+
+/// A menu bar item: one item that shows the selected service, or one fixed to a service.
+enum MenuBarItem: Equatable {
+    case combined
+    case service(Service)
+}
+
+/// The settings key names and defaults for one service, so views and `AlertCenter`
+/// don’t switch on strings. Claude’s keys keep the names they had before Codex.
+struct ServiceSettings {
+    let service: Service
+
+    init(_ service: Service) { self.service = service }
+
+    var enabledKey: String { service == .claude ? SettingsKey.showClaude : SettingsKey.showCodex }
+    var styleKey: String { service == .claude ? SettingsKey.menuBarStyle : SettingsKey.codexMenuBarStyle }
+    var sessionThresholdsKey: String { service == .claude ? SettingsKey.sessionThresholds : SettingsKey.codexSessionThresholds }
+    var weeklyThresholdsKey: String { service == .claude ? SettingsKey.weeklyThresholds : SettingsKey.codexWeeklyThresholds }
+    var sessionResetKey: String { service == .claude ? SettingsKey.notifySessionReset : SettingsKey.notifyCodexSessionReset }
+    var weeklyResetKey: String { service == .claude ? SettingsKey.notifyWeeklyReset : SettingsKey.notifyCodexWeeklyReset }
+
+    /// Different defaults give the two separate menu bar items different silhouettes.
+    var defaultStyle: MenuBarStyle { service == .claude ? .capsules : .rings }
+
+    /// The `service` string `AlertPlanner` uses for its key prefix.
+    var plannerName: String { service.rawValue }
+
+    func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? (service == .claude)
+    }
+
+    func style(_ defaults: UserDefaults = .standard) -> MenuBarStyle {
+        defaults.string(forKey: styleKey).flatMap(MenuBarStyle.init(rawValue:)) ?? defaultStyle
+    }
+
+    func alertSettings(_ defaults: UserDefaults = .standard) -> AlertSettings {
+        AlertSettings(
+            sessionThresholds: ThresholdList.parse(defaults.string(forKey: sessionThresholdsKey) ?? ""),
+            weeklyThresholds: ThresholdList.parse(defaults.string(forKey: weeklyThresholdsKey) ?? ""),
+            sessionReset: defaults.bool(forKey: sessionResetKey),
+            weeklyReset: defaults.bool(forKey: weeklyResetKey)
+        )
+    }
 }
 
 /// Bell percentages as stored: multiples of 5 in 5...100, sorted, at most four.
@@ -50,6 +126,14 @@ enum SettingsMigration {
         for key in [SettingsKey.legacyNotifySession80, SettingsKey.legacyNotifySession95, SettingsKey.legacyNotifyWeekly80] {
             defaults.removeObject(forKey: key)
         }
+        // Codex is on from the start only when Codex has left session logs on this Mac.
+        if defaults.object(forKey: SettingsKey.showClaude) == nil {
+            defaults.set(true, forKey: SettingsKey.showClaude)
+        }
+        if defaults.object(forKey: SettingsKey.showCodex) == nil {
+            let sessions = CodexUsageReader.defaultHome.appending(path: "sessions", directoryHint: .isDirectory)
+            defaults.set(FileManager.default.fileExists(atPath: sessions.path), forKey: SettingsKey.showCodex)
+        }
     }
 }
 
@@ -81,6 +165,20 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
         switch self {
         case .capsules: "Capsules"
         case .rings: "Rings"
+        }
+    }
+}
+
+enum MenuBarItems: String, CaseIterable, Identifiable {
+    case combined
+    case separate
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .combined: "One Item"
+        case .separate: "One per Service"
         }
     }
 }

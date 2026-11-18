@@ -3,9 +3,25 @@ import Foundation
 import LastCallKit
 import Observation
 
+/// One per service: `UsageModel.claude` polls the usage endpoint, `UsageModel.codex`
+/// reads Codex’s session logs.
 @Observable
 final class UsageModel {
-    static let shared = UsageModel()
+    static let claude = UsageModel(service: .claude)
+    static let codex = UsageModel(service: .codex)
+
+    static func model(for service: Service) -> UsageModel {
+        switch service {
+        case .claude: claude
+        case .codex: codex
+        }
+    }
+
+    let service: Service
+
+    private init(service: Service) {
+        self.service = service
+    }
 
     enum Problem: Equatable {
         case signedOut
@@ -19,21 +35,44 @@ final class UsageModel {
     /// API-list-price cost of Claude Code transcripts in the current windows. Nil until the first scan.
     private(set) var sessionCost: CostEstimate?
     private(set) var weeklyCost: CostEstimate?
+    /// The `plan_type` Codex recorded, e.g. “plus”. Codex only.
+    private(set) var plan: String?
 
-    @ObservationIgnored private let service = UsageService()
-    @ObservationIgnored private let scanner = TranscriptScanner()
+    @ObservationIgnored private lazy var usageService = UsageService()
+    @ObservationIgnored private lazy var scanner = TranscriptScanner()
+    @ObservationIgnored private let codexReader = CodexUsageReader()
     @ObservationIgnored private var isScanning = false
     @ObservationIgnored private var lastAttempt: Date?
-    @ObservationIgnored private var interval = UsageModel.baseInterval
+    @ObservationIgnored private var interval: TimeInterval = UsageModel.baseInterval
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var wakeObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var settingsObserver: (any NSObjectProtocol)?
 
     static let baseInterval: TimeInterval = 300
     static let signedOutInterval: TimeInterval = 60
     static let maxInterval: TimeInterval = 1800
+    static let codexInterval: TimeInterval = 60
+
+    /// “Plus plan”, from the plan type Codex recorded.
+    var planText: String? { plan.map { "\($0.capitalized) plan" } }
 
     var sessionFraction: Double? { snapshot?.fiveHour.map { min(max($0.utilization / 100, 0), 1) } }
     var weeklyFraction: Double? { snapshot?.sevenDay.map { min(max($0.utilization / 100, 0), 1) } }
+
+    /// Starts or stops polling whenever this service’s toggle in Settings changes.
+    func followSettings() {
+        guard settingsObserver == nil else { return }
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.syncWithSettings() }
+        }
+        syncWithSettings()
+    }
+
+    private func syncWithSettings() {
+        if ServiceSettings(service).isEnabled() { start() } else { stop() }
+    }
 
     /// Starts polling and the wake observer. Safe to call more than once.
     func start() {
@@ -44,6 +83,14 @@ final class UsageModel {
             Task { @MainActor in self?.restartPolling(firstDelay: 5) }
         }
         restartPolling(firstDelay: 0)
+    }
+
+    /// Stops polling and the wake observer. `start()` resumes.
+    func stop() {
+        pollTask?.cancel()
+        pollTask = nil
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        wakeObserver = nil
     }
 
     private func restartPolling(firstDelay: TimeInterval) {
@@ -60,6 +107,7 @@ final class UsageModel {
     }
 
     private func nextDelay() -> TimeInterval {
+        if service == .codex { return Self.codexInterval }
         let base = problem == .signedOut ? Self.signedOutInterval : interval
         let jitter = problem == .signedOut ? 0 : Double.random(in: -15...15)
         return max(30, base + jitter)
@@ -76,14 +124,42 @@ final class UsageModel {
         isRefreshing = true
         lastAttempt = Date()
         defer { isRefreshing = false }
+        switch service {
+        case .claude: await refreshClaude()
+        case .codex: await refreshCodex()
+        }
+    }
+
+    private func refreshCodex() async {
         do {
-            let fresh = try await service.fetchUsage()
+            guard let reading = try await codexReader.read() else {
+                // “No data”: Codex has recorded no limits in the last 8 days.
+                snapshot = nil
+                plan = nil
+                lastUpdated = nil
+                problem = .signedOut
+                return
+            }
+            let previous = snapshot
+            snapshot = reading.snapshot
+            plan = reading.plan
+            lastUpdated = reading.snapshot.fetchedAt
+            problem = nil
+            AlertCenter.shared.evaluate(service: .codex, previous: previous, current: reading.snapshot)
+        } catch {
+            problem = .message("Couldn’t read Codex’s session logs. Last Call will retry in 1 minute.")
+        }
+    }
+
+    private func refreshClaude() async {
+        do {
+            let fresh = try await usageService.fetchUsage()
             let previous = snapshot
             snapshot = fresh
             lastUpdated = fresh.fetchedAt
             problem = nil
             interval = Self.baseInterval
-            AlertCenter.shared.evaluate(previous: previous, current: fresh)
+            AlertCenter.shared.evaluate(service: .claude, previous: previous, current: fresh)
             // Separate task: a slow scan must not delay the next poll.
             Task { await self.scanCosts() }
         } catch let error as UsageError {
@@ -96,7 +172,7 @@ final class UsageModel {
     /// Totals Claude Code transcript cost for the current windows. Does nothing while the
     /// setting is off, so no transcript is read and no cache file is written.
     func scanCosts() async {
-        guard UserDefaults.standard.bool(forKey: SettingsKey.showAPIEquivalent) else { return }
+        guard service == .claude, UserDefaults.standard.bool(forKey: SettingsKey.showAPIEquivalent) else { return }
         guard !isScanning, let snapshot else { return }
         isScanning = true
         defer { isScanning = false }
@@ -135,8 +211,11 @@ final class UsageModel {
 
     /// The sentence the App Intent returns.
     func summaryText() async -> String {
-        await refreshIfStale(after: 60)
+        await refreshIfStale(after: service == .codex ? 10 : 60)
         if let snapshot { return UsageFormat.summary(snapshot) }
+        if service == .codex {
+            return problem == .signedOut ? "No Codex usage found. Send a request in Codex first." : "Codex usage isn’t available right now."
+        }
         return problem == .signedOut ? "Sign in to Claude Code to see your limits." : "Claude usage isn’t available right now."
     }
 }

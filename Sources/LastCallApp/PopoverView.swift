@@ -3,20 +3,47 @@ import LastCallKit
 import SwiftUI
 
 struct PopoverView: View {
-    let model: UsageModel
+    let item: MenuBarItem
 
     @State private var isShown = false
     @State private var copied = false
     @AppStorage(SettingsKey.showAPIEquivalent) private var showAPIEquivalent = false
+    @AppStorage(SettingsKey.selectedService) private var selectedService: Service = .claude
+    @AppStorage(SettingsKey.showClaude) private var showClaude = true
+    @AppStorage(SettingsKey.showCodex) private var showCodex = false
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
 
+    private var service: Service {
+        switch item {
+        case .service(let service): service
+        case .combined: Service.shown(selected: selectedService, claudeOn: showClaude, codexOn: showCodex)
+        }
+    }
+
+    private var model: UsageModel { .model(for: service) }
+
+    private var showsPicker: Bool { item == .combined && showClaude && showCodex }
+
+    /// Codex numbers are only as fresh as the last Codex request, so its footer always shows.
+    private var showsFooter: Bool {
+        guard model.lastUpdated != nil else { return false }
+        return service == .codex || model.problem != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            content
-                .padding(16)
-            // The update time only matters when the numbers are stale.
-            if model.problem != nil, model.lastUpdated != nil {
+            VStack(alignment: .leading, spacing: 16) {
+                if showsPicker {
+                    servicePicker
+                } else if case .service = item {
+                    header
+                }
+                content
+            }
+            .padding(16)
+            // Claude’s update time only matters when the numbers are stale.
+            if showsFooter {
                 Divider()
                 footer
                     .padding(.horizontal, 16)
@@ -28,6 +55,7 @@ struct PopoverView: View {
                 .padding(.vertical, 6)
         }
         .frame(width: 300)
+        .background { shortcuts }
         .onAppear { shown() }
         .onDisappear { isShown = false }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
@@ -40,9 +68,47 @@ struct PopoverView: View {
 
     private func shown() {
         isShown = true
+        let model = model
         Task {
-            await model.refreshIfStale(after: 60)
+            await model.refreshIfStale(after: model.service == .codex ? 10 : 60)
             await model.scanCosts()
+        }
+    }
+
+    // MARK: Service switch
+
+    private var servicePicker: some View {
+        Picker("Service", selection: $selectedService) {
+            ForEach(Service.allCases) { Text($0.title).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
+    /// ⌘1 and ⌘2 pick Claude and Codex while the popover is open.
+    @ViewBuilder private var shortcuts: some View {
+        if showsPicker {
+            ZStack {
+                Button("Show Claude") { selectedService = .claude }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("Show Codex") { selectedService = .codex }
+                    .keyboardShortcut("2", modifiers: .command)
+            }
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(service.title).font(.headline)
+            Spacer()
+            if let plan = model.planText {
+                Text(plan)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -50,7 +116,7 @@ struct PopoverView: View {
 
     @ViewBuilder private var content: some View {
         if model.problem == .signedOut {
-            signedOut
+            if service == .codex { noCodexData } else { signedOut }
         } else if let snapshot = model.snapshot {
             TimelineView(PopoverSchedule(live: isShown)) { timeline in
                 VStack(alignment: .leading, spacing: 16) {
@@ -118,18 +184,35 @@ struct PopoverView: View {
         }
     }
 
+    private var noCodexData: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("No Codex usage found.")
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Last Call reads the limits Codex records in ~/.codex/sessions. Send one request in Codex, and they appear here within a minute.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     // MARK: Footer
 
     private var footer: some View {
         HStack {
             TimelineView(PopoverSchedule(live: isShown)) { timeline in
-                Text(model.lastUpdated.map { UsageFormat.updated($0, now: timeline.date) } ?? "Not updated yet")
+                Text(footerText(now: timeline.date))
                     .monospacedDigit()
             }
             Spacer()
         }
         .font(.caption)
         .foregroundStyle(.secondary)
+    }
+
+    private func footerText(now: Date) -> String {
+        guard let updated = model.lastUpdated else { return "Not updated yet" }
+        return service == .codex ? UsageFormat.codexAsOf(updated, now: now) : UsageFormat.updated(updated, now: now)
     }
 
     private var actions: some View {
