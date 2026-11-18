@@ -41,6 +41,12 @@ import Testing
         #expect(UsageFormat.updated(now.addingTimeInterval(-90), now: now, locale: en) == "Updated 1 min ago")
     }
 
+    @Test func codexAsOfText() {
+        #expect(UsageFormat.codexAsOf(now.addingTimeInterval(-20), now: now, locale: en) == "As of your last Codex request, just now")
+        #expect(UsageFormat.codexAsOf(now.addingTimeInterval(-12 * 60), now: now, locale: en) == "As of your last Codex request, 12 min ago")
+        #expect(UsageFormat.codexAsOf(now.addingTimeInterval(-3 * 3600 - 5 * 60), now: now, locale: en) == "As of your last Codex request, 3 hr 5 min ago")
+    }
+
     @Test func percentRoundsAndClamps() {
         #expect(UsageFormat.percent(41.5) == 42)
         #expect(UsageFormat.percent(-3) == 0)

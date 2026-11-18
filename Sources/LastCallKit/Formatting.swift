@@ -54,6 +54,13 @@ public enum UsageFormat {
         return "Updated \(countdown(age, locale: locale)) ago"
     }
 
+    /// “As of your last Codex request, just now” under a minute, then “… 12 min ago”.
+    public static func codexAsOf(_ date: Date, now: Date, locale: Locale = .current) -> String {
+        let age = now.timeIntervalSince(date)
+        if age < 60 { return "As of your last Codex request, just now" }
+        return "As of your last Codex request, \(countdown(age, locale: locale)) ago"
+    }
+
     /// “Session 42%, resets 3:40 PM. Week 18%, resets Thu 9:00 AM.”
     public static func summary(
         _ snapshot: UsageSnapshot,
