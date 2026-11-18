@@ -57,6 +57,7 @@ struct PopoverView: View {
         .frame(width: 300)
         .background { shortcuts }
         .onAppear { shown() }
+        .onChange(of: selectedService) { if isShown { shown() } }
         .onDisappear { isShown = false }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             if (note.object as? NSWindow)?.title.isEmpty == true { shown() }
