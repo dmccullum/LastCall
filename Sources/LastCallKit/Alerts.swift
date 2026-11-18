@@ -29,15 +29,18 @@ public enum AlertPlanner {
         current: UsageSnapshot,
         settings: AlertSettings,
         fired: Set<String>,
+        service: String = "claude",
         locale: Locale = .current,
         timeZone: TimeZone = .current
     ) -> [UsageAlert] {
         var result: [UsageAlert] = []
+        // Claude’s keys stay unprefixed so alerts that already fired aren’t sent again.
+        let prefix = service == "codex" ? "cx-" : ""
 
         if let session = current.fiveHour,
            let threshold = highestReached(settings.sessionThresholds, current: session, previous: previous?.fiveHour) {
             result.append(UsageAlert(
-                key: "s\(threshold)|\(windowKey(session))",
+                key: "\(prefix)s\(threshold)|\(windowKey(session))",
                 message: sessionMessage(percent: UsageFormat.percent(session.utilization), resetsAt: session.resetsAt, locale: locale, timeZone: timeZone)
             ))
         }
@@ -45,7 +48,7 @@ public enum AlertPlanner {
         if let week = current.sevenDay,
            let threshold = highestReached(settings.weeklyThresholds, current: week, previous: previous?.sevenDay) {
             result.append(UsageAlert(
-                key: "w\(threshold)|\(windowKey(week))",
+                key: "\(prefix)w\(threshold)|\(windowKey(week))",
                 message: weeklyMessage(percent: UsageFormat.percent(week.utilization), resetsAt: week.resetsAt, locale: locale, timeZone: timeZone)
             ))
         }
@@ -54,7 +57,7 @@ public enum AlertPlanner {
            let before = previous?.fiveHour, before.utilization >= 80, let beforeReset = before.resetsAt {
             let rolled = current.fiveHour?.resetsAt.map { $0.timeIntervalSince(beforeReset) > 60 } ?? true
             if rolled {
-                result.append(UsageAlert(key: "sr|\(minuteKey(beforeReset))", message: sessionResetMessage))
+                result.append(UsageAlert(key: "\(prefix)sr|\(minuteKey(beforeReset))", message: sessionResetMessage))
             }
         }
 
@@ -62,7 +65,7 @@ public enum AlertPlanner {
            let before = previous?.sevenDay, before.utilization >= 80, let beforeReset = before.resetsAt {
             let rolled = current.sevenDay?.resetsAt.map { $0.timeIntervalSince(beforeReset) > 60 } ?? true
             if rolled {
-                result.append(UsageAlert(key: "wr|\(minuteKey(beforeReset))", message: weeklyResetMessage))
+                result.append(UsageAlert(key: "\(prefix)wr|\(minuteKey(beforeReset))", message: weeklyResetMessage))
             }
         }
 

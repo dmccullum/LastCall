@@ -231,4 +231,26 @@ final class ScriptedTransport: HTTPTransport, @unchecked Sendable {
         #expect(crossed.map(\.key.first) == ["s"])
         #expect(crossed[0].key.hasPrefix("s80|"))
     }
+
+    @Test func codexKeysArePrefixedAndClaudeKeysAreNot() {
+        let current = snap(96, reset: reset1, week: 85)
+        let before = snap(85, reset: reset1, week: 85)
+        let rolled = snap(1, reset: reset2, week: 85)
+        func keys(_ previous: UsageSnapshot?, _ current: UsageSnapshot, service: String?) -> [String] {
+            if let service {
+                return AlertPlanner.alerts(previous: previous, current: current, settings: all, fired: [], service: service, locale: en, timeZone: utc).map(\.key)
+            }
+            return AlertPlanner.alerts(previous: previous, current: current, settings: all, fired: [], locale: en, timeZone: utc).map(\.key)
+        }
+        let defaulted = keys(nil, current, service: nil)
+        let claude = keys(nil, current, service: "claude")
+        let codex = keys(nil, current, service: "codex")
+        #expect(defaulted == claude)
+        #expect(claude.count == 2)
+        #expect(claude.allSatisfy { !$0.hasPrefix("cx-") })
+        #expect(codex == claude.map { "cx-" + $0 })
+        let codexResets = keys(before, rolled, service: "codex")
+        #expect(codexResets.contains { $0.hasPrefix("cx-sr|") })
+        #expect(keys(before, rolled, service: "claude").contains { $0.hasPrefix("sr|") })
+    }
 }
