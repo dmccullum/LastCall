@@ -2,11 +2,13 @@
 
 <h1 align="center">Last Call</h1>
 
-Last Call is a macOS menu bar app that shows your Claude 5-hour session usage and weekly usage as percentages, with the time each one resets. The tick on each bar marks how much of the window has passed, so “Behind pace” means you’ve used less than an even share so far.
+Last Call is a macOS menu bar app that shows your Claude and Codex (ChatGPT) 5-hour session usage and weekly usage as percentages, with the time each one resets. The tick on each bar marks how much of the window has passed, so “Behind pace” means you’ve used less than an even share so far.
 
 <p align="center"><img src="docs/images/screenshot.png" alt="Last Call’s popover open below its menu bar item: Current Session 10% used, resets in 47 min; This Week 36% used, resets Fri 3:00 AM; both behind pace" width="600"></p>
 
 ## Where the numbers come from
+
+### Claude
 
 Last Call reads the Claude Code sign-in from the login Keychain (item “Claude Code-credentials”) by running `/usr/bin/security`, then requests `https://api.anthropic.com/api/oauth/usage` with that access token. When the token is within 5 minutes of expiring, Last Call refreshes it at `https://platform.claude.com/v1/oauth/token` and writes the new tokens back to the same Keychain item, so Claude Code stays signed in. Nothing is sent anywhere else, and tokens are never logged or shown.
 
@@ -14,7 +16,13 @@ When “Show API Equivalent (Beta)” is on in Settings, the dollar figure under
 
 It polls every 5 minutes (plus or minus 15 seconds), when the popover opens and the data is more than 60 seconds old, and after the Mac wakes. After an HTTP 429 the interval doubles, up to 30 minutes. While signed out it checks the Keychain every 60 seconds.
 
+### Codex
+
+Last Call reads the newest `rate_limits` record from the Codex session logs in `~/.codex/sessions` (or `$CODEX_HOME/sessions`), checking files from the last 8 days. It never reads `auth.json` and makes no network requests. Codex records these numbers with each request, so they are as of your last Codex request, and a window whose reset time has passed shows 0%. Last Call checks every 60 seconds, when the popover opens, and after the Mac wakes.
+
 ## Setup
+
+### Claude
 
 Sign in to Claude Code once. In Terminal:
 
@@ -23,6 +31,19 @@ claude /login
 ```
 
 If Last Call finds no sign-in, the popover shows “Sign in to Claude Code to see your limits.” with a Copy Sign-In Command button that puts `claude /login` on the pasteboard.
+
+### Codex
+
+Send one request in Codex CLI or the Codex app. Until Codex has recorded its limits, the popover shows “No Codex usage found.”
+
+### Services and menu bar items
+
+Settings › General › Services turns Claude and Codex on or off. Codex starts on if `~/.codex/sessions` exists. Settings › General › Menu Bar › Items, shown when both are on, has two options:
+
+- One Item: a single menu bar item with a Claude / Codex switch at the top of the popover. ⌘1 selects Claude and ⌘2 selects Codex while the popover is open.
+- One per Service: a Claude item and a Codex item, each with its own style. Claude defaults to capsules and Codex to rings.
+
+Notifications, including bells and reset alerts, are set per service in Settings › Notifications.
 
 ## Build
 
@@ -41,9 +62,10 @@ swift test
 
 ## Layout
 
+- `Sources/LastCallKit/Codex`: Codex session log reader.
 - `Sources/LastCallKit`: credentials, token refresh, usage client, models, pace math, formatting, notification rules.
 - `Sources/LastCallApp`: menu bar item, popover, Settings, About, notifications, App Intent.
-- `Tests/LastCallKitTests`: JSON decoding, pace math, countdown formatting, token expiry, refresh flow, notification rules.
+- `Tests/LastCallKitTests`: JSON decoding, pace math, countdown formatting, token expiry, refresh flow, notification rules, Codex log reading.
 
 ## License
 
