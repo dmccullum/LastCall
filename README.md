@@ -43,6 +43,14 @@ Settings › General › Services turns Claude and Codex on or off. Codex starts
 - One Item: a single menu bar item with a Claude / Codex switch at the top of the popover. ⌘1 selects Claude and ⌘2 selects Codex while the popover is open.
 - One per Service: a Claude item and a Codex item, each with its own style. Claude defaults to capsules and Codex to rings.
 
+Settings › General › Menu Bar › Style picks the glyph:
+
+- Capsules: two bars, 5-hour session on top, weekly below.
+- Rings: two open arcs, 5-hour session outside, weekly inside.
+- Ring: one full circle for the 5-hour session, filled clockwise from 12 o’clock. Weekly is not drawn.
+
+With both services on, each item shows a letter (A for Claude, O for Codex; set under Letters, empty for none). Put Letters Inside Rings draws it in the centre of Rings or Ring instead of before the glyph.
+
 Notifications, including bells and reset alerts, are set per service in Settings › Notifications.
 
 ## Build

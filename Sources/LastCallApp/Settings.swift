@@ -21,6 +21,10 @@ enum SettingsKey {
     static let menuBarItems = "menuBarItems"
     static let selectedService = "selectedService"
     static let codexMenuBarStyle = "codexMenuBarStyle"
+    /// The letter on each menu bar item while both services are on.
+    static let claudeLabel = "claudeLabel"
+    static let codexLabel = "codexLabel"
+    static let letterInsideRings = "letterInsideRings"
     static let codexSessionThresholds = "codexSessionThresholds"
     static let codexWeeklyThresholds = "codexWeeklyThresholds"
     static let notifyCodexSessionReset = "notifyCodexSessionReset"
@@ -158,6 +162,8 @@ enum MenuBarDisplay: String, CaseIterable, Identifiable {
 enum MenuBarStyle: String, CaseIterable, Identifiable {
     case capsules
     case rings
+    /// One full ring for the 5-hour session; no weekly.
+    case ring
 
     var id: String { rawValue }
 
@@ -165,8 +171,12 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
         switch self {
         case .capsules: "Capsules"
         case .rings: "Rings"
+        case .ring: "Ring"
         }
     }
+
+    /// Styles with room for the service letter in the middle.
+    var holdsLetter: Bool { self != .capsules }
 }
 
 enum MenuBarItems: String, CaseIterable, Identifiable {

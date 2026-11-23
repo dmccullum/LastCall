@@ -2,12 +2,27 @@ import AppKit
 
 /// The menu bar glyph, 5-hour session and weekly, each in proportion to its utilization.
 /// Capsules stacks two outlined capsules, session on top. Rings draws two concentric open
-/// arcs, session outside. A template image, so the system colors it.
+/// arcs, session outside. Ring draws one full circle for the session only. A template
+/// image, so the system colors it.
 enum MenuBarIcon {
     static let size = NSSize(width: 18, height: 14)
 
+    /// Rings is 20 by 18 pt and Ring 19 by 21 pt to match the optical size of the round
+    /// icons beside them. Ring is as wide as its stroke, so the status item spacing matches
+    /// the icons beside it; a pace tick at 3 or 9 o’clock loses its outer 1 pt.
+    static func glyphSize(_ style: MenuBarStyle) -> NSSize {
+        switch style {
+        case .capsules: size
+        case .rings: NSSize(width: 20, height: 18)
+        case .ring: NSSize(width: 19, height: 21)
+        }
+    }
+
     /// Space between the capsules and the text.
     static let textSpacing: CGFloat = 4
+
+    /// Space between the service letter and the glyph.
+    static let badgeSpacing: CGFloat = 3
 
     /// Fractions are 0 to 1; nil draws an empty capsule. With `text`, the text is drawn
     /// into the same image so the status item pads it like an icon-only item; a SwiftUI
@@ -19,21 +34,47 @@ enum MenuBarIcon {
         sessionPace: Double? = nil,
         weeklyPace: Double? = nil,
         text: String? = nil,
+        badge: String? = nil,
+        badgeInsideRings: Bool = true,
         style: MenuBarStyle = .capsules
     ) -> NSImage {
+        // The service letter (before the capsules, or inside the rings): “A” for Anthropic, “O” for OpenAI.
+        let mark = badge.flatMap { $0.isEmpty ? nil : $0 }.map { NSAttributedString(string: $0, attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+            .foregroundColor: NSColor.black
+        ]) }
+        let markSize = mark?.size() ?? .zero
+        // Before the glyph, or inside the ring when the style is Rings or Ring and `badgeInsideRings` is on.
+        let inside = style.holdsLetter && badgeInsideRings
+        let markWidth = mark == nil || inside ? 0 : ceil(markSize.width) + badgeSpacing
+        // Ring's single circle leaves a 15 pt opening, Rings' inner ring 8 pt.
+        let ringFont = NSFont.systemFont(ofSize: style == .ring ? 10.5 : 7, weight: .heavy)
+        let ringMark = !inside ? nil : badge.flatMap { $0.isEmpty ? nil : $0 }.map {
+            NSAttributedString(string: $0, attributes: [
+                .font: ringFont,
+                .foregroundColor: NSColor.black
+            ])
+        }
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
             .foregroundColor: NSColor.black
         ]
         let title = text.map { NSAttributedString(string: $0, attributes: attributes) }
         let titleSize = title?.size() ?? .zero
-        // Rings is 20 by 18 pt to match the optical size of the round icons beside it.
-        let glyph = style == .rings ? NSSize(width: 20, height: 18) : size
+        let glyph = glyphSize(style)
         let canvas = NSSize(
-            width: glyph.width + (title == nil ? 0 : textSpacing + ceil(titleSize.width)),
+            width: markWidth + glyph.width + (title == nil ? 0 : textSpacing + ceil(titleSize.width)),
             height: max(glyph.height, ceil(titleSize.height))
         )
         let image = NSImage(size: canvas, flipped: false) { _ in
+            if !inside {
+                mark?.draw(at: NSPoint(x: 0, y: ((canvas.height - markSize.height) / 2).rounded()))
+            }
+            NSGraphicsContext.current?.saveGraphicsState()
+            let shift = NSAffineTransform()
+            shift.translateX(by: markWidth, yBy: 0)
+            shift.concat()
+            var ringCenter: NSPoint?
             switch style {
             case .capsules:
                 let height: CGFloat = 5.5
@@ -49,12 +90,35 @@ enum MenuBarIcon {
                 // Whole-point centre and radii so both 2 pt strokes land on pixel edges at 1x.
                 // The arcs span 1.5 to 17 pt above the bottom of the 18 pt glyph, ticks to 18.
                 let center = NSPoint(x: glyph.width / 2, y: ((canvas.height - glyph.height) / 2).rounded() + 7)
-                draw(arc: 9, center: center, fill: session, pace: sessionPace)
-                draw(arc: 5, center: center, fill: weekly, pace: weeklyPace)
-                if let sessionPace { draw(tick: sessionPace, radius: 9, center: center) }
-                if let weeklyPace { draw(tick: weeklyPace, radius: 5, center: center) }
+                draw(arc: 9, center: center, sweep: gauge, fill: session)
+                draw(arc: 5, center: center, sweep: gauge, fill: weekly)
+                if let sessionPace { draw(tick: sessionPace, radius: 9, center: center, sweep: gauge) }
+                if let weeklyPace { draw(tick: weeklyPace, radius: 5, center: center, sweep: gauge) }
+                ringCenter = center
+            case .ring:
+                // Half-point centre and radius, so the 2 pt stroke's edges still land on whole
+                // points at 1x. The ring spans the 19 pt width and 1 to 20 pt of the 21 pt height;
+                // the tick reaches 0 to 21 at 12 and 6 o’clock.
+                let center = NSPoint(x: glyph.width / 2, y: ((canvas.height - glyph.height) / 2).rounded() + 10.5)
+                draw(arc: 8.5, center: center, sweep: circle, fill: session)
+                if let sessionPace { draw(tick: sessionPace, radius: 8.5, center: center, sweep: circle) }
+                ringCenter = center
             }
-            title?.draw(at: NSPoint(x: glyph.width + textSpacing, y: ((canvas.height - titleSize.height) / 2).rounded()))
+            if let ringMark, let ringCenter, let context = NSGraphicsContext.current?.cgContext {
+                // The letter's ink, not its line box, centred on the ring's centre, so A and O
+                // both sit in the middle whatever the font's ascender and descender.
+                let line = CTLineCreateWithAttributedString(ringMark)
+                context.textMatrix = .identity
+                context.textPosition = .zero
+                let ink = CTLineGetImageBounds(line, context)
+                context.textPosition = CGPoint(
+                    x: ((ringCenter.x - ink.midX) * 2).rounded() / 2,
+                    y: ((ringCenter.y - ink.midY) * 2).rounded() / 2
+                )
+                CTLineDraw(line, context)
+            }
+            NSGraphicsContext.current?.restoreGraphicsState()
+            title?.draw(at: NSPoint(x: markWidth + glyph.width + textSpacing, y: ((canvas.height - titleSize.height) / 2).rounded()))
             return true
         }
         image.isTemplate = true
@@ -87,17 +151,25 @@ enum MenuBarIcon {
         NSRect(x: x, y: outer.minY, width: 1, height: outer.height).fill()
     }
 
-    // Gauge sweep in degrees, counterclockwise from +x: starts lower left, runs clockwise
-    // over the top to lower right, leaving the gap at the bottom.
-    private static let sweepStart: CGFloat = 210
-    private static let sweepLength: CGFloat = 240
+    /// Where an arc starts and how far it runs clockwise, in degrees counterclockwise from +x.
+    private struct Sweep {
+        let start: CGFloat
+        let length: CGFloat
 
-    private static func draw(arc radius: CGFloat, center: NSPoint, fill: Double?, pace: Double?) {
+        func angle(_ fraction: CGFloat) -> CGFloat { start - length * fraction }
+    }
+
+    /// Rings: starts lower left, runs clockwise over the top to lower right, leaving the gap at the bottom.
+    private static let gauge = Sweep(start: 210, length: 240)
+    /// Ring: a full circle from 12 o’clock.
+    private static let circle = Sweep(start: 90, length: 360)
+
+    private static func draw(arc radius: CGFloat, center: NSPoint, sweep: Sweep, fill: Double?) {
         func arc(_ fraction: CGFloat) -> NSBezierPath {
             let path = NSBezierPath()
             path.appendArc(
                 withCenter: center, radius: radius,
-                startAngle: sweepStart, endAngle: sweepStart - sweepLength * fraction, clockwise: true
+                startAngle: sweep.start, endAngle: sweep.angle(fraction), clockwise: true
             )
             path.lineWidth = 2
             path.lineCapStyle = .round
@@ -112,8 +184,8 @@ enum MenuBarIcon {
 
     /// A 1 pt radial tick at the pace angle, reaching 1 pt past each side of the 2 pt ring.
     /// A 3 pt wide strip under it is cleared so the tick reads against the fill.
-    private static func draw(tick fraction: Double, radius: CGFloat, center: NSPoint) {
-        let angle = (sweepStart - sweepLength * CGFloat(min(max(fraction, 0), 1))) * .pi / 180
+    private static func draw(tick fraction: Double, radius: CGFloat, center: NSPoint, sweep: Sweep) {
+        let angle = sweep.angle(CGFloat(min(max(fraction, 0), 1))) * .pi / 180
         func line(width: CGFloat) -> NSBezierPath {
             let path = NSBezierPath()
             path.move(to: NSPoint(x: center.x + (radius - 2) * cos(angle), y: center.y + (radius - 2) * sin(angle)))

@@ -9,6 +9,9 @@ struct MenuBarItemLabel: View {
     @AppStorage(SettingsKey.showCodex) private var showCodex = false
     @AppStorage(SettingsKey.menuBarStyle) private var claudeStyle: MenuBarStyle = .capsules
     @AppStorage(SettingsKey.codexMenuBarStyle) private var codexStyle: MenuBarStyle = .rings
+    @AppStorage(SettingsKey.claudeLabel) private var claudeLabel = "A"
+    @AppStorage(SettingsKey.codexLabel) private var codexLabel = "O"
+    @AppStorage(SettingsKey.letterInsideRings) private var letterInside = true
 
     private var service: Service {
         switch item {
@@ -18,13 +21,21 @@ struct MenuBarItemLabel: View {
     }
 
     var body: some View {
-        MenuBarLabel(model: .model(for: service), style: service == .claude ? claudeStyle : codexStyle)
+        MenuBarLabel(
+            model: .model(for: service),
+            style: service == .claude ? claudeStyle : codexStyle,
+            // With both services on, a letter tells them apart: A for Anthropic, O for OpenAI by default.
+            badge: showClaude && showCodex ? (service == .claude ? claudeLabel : codexLabel) : nil,
+            badgeInsideRings: letterInside
+        )
     }
 }
 
 struct MenuBarLabel: View {
     let model: UsageModel
     let style: MenuBarStyle
+    var badge: String? = nil
+    var badgeInsideRings = true
     @AppStorage(SettingsKey.menuBarDisplay) private var display: MenuBarDisplay = .session
     @AppStorage(SettingsKey.showPaceInMenuBar) private var showPace = false
     @State private var now = Date.now
@@ -80,6 +91,8 @@ struct MenuBarLabel: View {
             sessionPace: sessionPace,
             weeklyPace: weeklyPace,
             text: text,
+            badge: badge,
+            badgeInsideRings: badgeInsideRings,
             style: style
         ))
         .accessibilityLabel(accessibilityText)

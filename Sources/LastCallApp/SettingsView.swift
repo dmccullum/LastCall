@@ -7,6 +7,9 @@ import UserNotifications
 struct SettingsView: View {
     @AppStorage(SettingsKey.menuBarStyle) private var claudeStyle: MenuBarStyle = .capsules
     @AppStorage(SettingsKey.codexMenuBarStyle) private var codexStyle: MenuBarStyle = .rings
+    @AppStorage(SettingsKey.claudeLabel) private var claudeLabel = "A"
+    @AppStorage(SettingsKey.codexLabel) private var codexLabel = "O"
+    @AppStorage(SettingsKey.letterInsideRings) private var letterInsideRings = true
     @AppStorage(SettingsKey.showClaude) private var showClaude = true
     @AppStorage(SettingsKey.showCodex) private var showCodex = false
     @AppStorage(SettingsKey.menuBarItems) private var menuBarItems: MenuBarItems = .combined
@@ -87,6 +90,20 @@ struct SettingsView: View {
                 } else {
                     StyleRow(title: "Style", style: sharedStyle, showPace: showPace)
                 }
+                if bothOn {
+                    LabeledContent {
+                        HStack(spacing: 12) {
+                            LetterField(title: "Claude", text: $claudeLabel)
+                            LetterField(title: "Codex", text: $codexLabel)
+                        }
+                    } label: {
+                        Text("Letters")
+                        Text("Tell the services apart in the menu bar.")
+                    }
+                    if claudeStyle.holdsLetter || codexStyle.holdsLetter {
+                        Toggle("Put Letters Inside Rings", isOn: $letterInsideRings)
+                    }
+                }
                 Picker("Shows", selection: $display) {
                     ForEach(MenuBarDisplay.allCases) { Text($0.title).tag($0) }
                 }
@@ -150,6 +167,26 @@ struct SettingsView: View {
 }
 
 /// A labeled row of the two style tiles.
+/// One letter, uppercased. Empty shows no letter.
+private struct LetterField: View {
+    let title: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title).foregroundStyle(.secondary)
+            TextField(title, text: $text)
+                .labelsHidden()
+                .multilineTextAlignment(.center)
+                .frame(width: 28)
+                .onChange(of: text) { _, new in
+                    let letter = String(new.trimmingCharacters(in: .whitespaces).suffix(1)).uppercased()
+                    if letter != new { text = letter }
+                }
+        }
+    }
+}
+
 private struct StyleRow: View {
     let title: String
     @Binding var style: MenuBarStyle
@@ -184,8 +221,8 @@ private struct StyleTile: View {
                     style: style
                 ))
                 .resizable()
-                // Exactly 2x, so both styles keep their menu bar proportions to each other.
-                .frame(width: style == .rings ? 40 : 36, height: style == .rings ? 36 : 28)
+                // Exactly 2x, so the styles keep their menu bar proportions to each other.
+                .frame(width: MenuBarIcon.glyphSize(style).width * 2, height: MenuBarIcon.glyphSize(style).height * 2)
                 .foregroundStyle(.primary)
                 .frame(width: 64, height: 48)
                 .background(.quaternary.opacity(0.6), in: .rect(cornerRadius: 8))
@@ -216,6 +253,7 @@ private struct NotificationsTab: View {
         let service = Service.shown(selected: chosen, claudeOn: showClaude, codexOn: showCodex)
         NotificationsSettings(service: service, selection: both ? $chosen : nil)
             .id(service)
+            .transaction { $0.animation = nil }
     }
 }
 
