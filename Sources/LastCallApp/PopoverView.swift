@@ -39,7 +39,11 @@ struct PopoverView: View {
                 } else if case .service = item {
                     header
                 }
+                // A new identity per service, so switching swaps the rows outright
+                // instead of sliding the bars from one service's numbers to the other's.
                 content
+                    .id(service)
+                    .transaction { $0.animation = nil }
             }
             .padding(16)
             // Claude’s update time only matters when the numbers are stale.
@@ -56,6 +60,7 @@ struct PopoverView: View {
         }
         .frame(width: 300)
         .background { shortcuts }
+        .dismissesOnOutsideClick()
         .onAppear { shown() }
         .onChange(of: selectedService) { if isShown { shown() } }
         .onDisappear { isShown = false }

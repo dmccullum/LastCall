@@ -4,6 +4,7 @@ import SwiftUI
 
 @main
 struct LastCallApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @AppStorage(SettingsKey.showClaude) private var showClaude = true
     @AppStorage(SettingsKey.showCodex) private var showCodex = false
     @AppStorage(SettingsKey.menuBarItems) private var menuBarItems: MenuBarItems = .combined
@@ -83,6 +84,12 @@ extension LastCallApp {
         case .codex: if showClaude { showCodex = false }
         }
     }
+}
+
+/// With two menu bar items, SwiftUI quits the app when one popover closes while the other
+/// opens, because for a moment no window is open. Last Call quits only from its Quit command.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
 
 /// Brings an LSUIElement app’s window forward; without this a new window opens behind the frontmost app.
