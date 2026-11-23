@@ -19,6 +19,10 @@ private struct PopoverDismissal: NSViewRepresentable {
 private final class DismissalView: NSView {
     private var clickMonitor: Any?
     private var observers: [any NSObjectProtocol] = []
+    /// The menu bar button that opens this popover. Closing through its action, not by
+    /// ordering the window out, keeps MenuBarExtra's open state and the button's
+    /// highlight in step with the window.
+    private weak var statusButton: NSStatusBarButton?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -34,17 +38,41 @@ private final class DismissalView: NSView {
                 MainActor.assumeIsolated { self?.stopMonitoringClicks() }
             }
         ]
-        if window.isKeyWindow { startMonitoringClicks() }
+        if window.isKeyWindow { becameKey() }
     }
 
     private func keyWindowChanged(_ keyWindow: NSWindow?) {
         guard let window, let keyWindow else { return }
         if keyWindow === window {
-            startMonitoringClicks()
+            becameKey()
         } else {
             // Another Last Call window took key: the other menu bar popover, Settings or About.
             close()
         }
+    }
+
+    private func becameKey() {
+        if statusButton == nil { statusButton = findStatusButton() }
+        startMonitoringClicks()
+    }
+
+    /// The button being clicked is highlighted while its popover opens. Otherwise, the
+    /// popover opens with its left edge at its button's.
+    private func findStatusButton() -> NSStatusBarButton? {
+        guard let window else { return nil }
+        let buttons = NSApp.windows.compactMap { $0.contentView.flatMap(Self.statusBarButton(in:)) }
+        if let pressed = buttons.first(where: \.isHighlighted) { return pressed }
+        return buttons.min {
+            abs(($0.window?.frame.minX ?? .infinity) - window.frame.minX) < abs(($1.window?.frame.minX ?? .infinity) - window.frame.minX)
+        }
+    }
+
+    private static func statusBarButton(in view: NSView) -> NSStatusBarButton? {
+        if let button = view as? NSStatusBarButton { return button }
+        for subview in view.subviews {
+            if let button = statusBarButton(in: subview) { return button }
+        }
+        return nil
     }
 
     private func startMonitoringClicks() {
@@ -63,8 +91,15 @@ private final class DismissalView: NSView {
     private func close() {
         guard let window, window.isVisible else { return }
         stopMonitoringClicks()
-        // orderOut, not close: closing the last window makes SwiftUI quit the app.
-        window.orderOut(nil)
+        // The button's state is on while MenuBarExtra counts its popover as open.
+        if let button = statusButton, button.state == .on, let action = button.action {
+            NSApp.sendAction(action, to: button.target, from: button)
+            // Closed while another Last Call window is key, MenuBarExtra hides the popover
+            // but leaves its button on, which draws the item selected.
+            if !window.isVisible { button.state = .off }
+        } else {
+            window.orderOut(nil)
+        }
     }
 
     private func stopWatching() {
