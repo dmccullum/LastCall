@@ -48,7 +48,7 @@ enum MenuBarIcon {
         let inside = style.holdsLetter && badgeInsideRings
         let markWidth = mark == nil || inside ? 0 : ceil(markSize.width) + badgeSpacing
         // Ring's single circle leaves a 15 pt opening, Rings' inner ring 8 pt.
-        let ringFont = NSFont.systemFont(ofSize: style == .ring ? 10.5 : 7, weight: .heavy)
+        let ringFont = NSFont.systemFont(ofSize: style == .ring ? 9.5 : 7, weight: .heavy)
         let ringMark = !inside ? nil : badge.flatMap { $0.isEmpty ? nil : $0 }.map {
             NSAttributedString(string: $0, attributes: [
                 .font: ringFont,
